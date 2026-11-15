@@ -4,7 +4,9 @@ A browser-playable build of the Python/Pygame game, plus its Pygbag-compatible s
 
 ## Play
 
-Open the published GitHub Pages site in a modern desktop browser. The game loads from the files in this repository. It may take a short while on first load while the browser runtime initializes.
+Open the published GitHub Pages site in a modern browser on desktop or mobile. The square game view adapts to the available screen and renders at high density. A first visit may take a short while while the browser runtime initializes.
+
+On touch screens, use the four on-screen arrows to move in Maze Runner, tap anywhere to play Reflex Protocol, and tap the Memory Matrix tiles in order. Each mission has a menu button and a sound-effects toggle. On desktop, keyboard controls remain available.
 
 ## Run locally
 

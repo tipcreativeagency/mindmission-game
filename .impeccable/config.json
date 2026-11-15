@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "createdAt": "2026-11-15T16:48:12.681Z",
+        "reason": "Project: inherited Pygbag wrapper keeps Arial as its compatibility fallback; the game’s typography is rendered by Pygame and the existing visual refinement preserves its established type system"
+      }
+    ]
+  }
+}

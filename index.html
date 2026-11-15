@@ -156,9 +156,9 @@ config = {
     cdn : "https://pygame-web.github.io/cdn/0.9.3/",
     autorun : 0,
     PYBUILD : "3.12",
-    fb_ar   :  1.77,
-    fb_width : "1280",
-    fb_height : "720"
+    fb_ar   :  1.0,
+    fb_width : "1440",
+    fb_height : "1440"
 }
 
 function show_infobox() {
@@ -181,8 +181,7 @@ function show_infobox() {
     <title>MIND MISSION — Brain Training Arcade</title>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="viewport" content="height=device-height, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes"/>
 
@@ -196,7 +195,7 @@ function show_infobox() {
             margin-top: 20px;
             margin-left: 30px;
             font-weight: bold;
-            color: rgb(120, 120, 120);
+            color: #aebbd0;
         }
 
         #progress {
@@ -224,26 +223,29 @@ function show_infobox() {
         canvas.emscripten {
             border: 0px none;
             background-color: #070b18;
-            width: 100%;
-            height: 100%;
+            width: min(100vw, 100dvh);
+            height: min(100vw, 100dvh);
             max-width: 100vw;
-            max-height: 100vh;
+            max-height: 100dvh;
             z-index: 5;
 
             padding: 0;
             margin: 0 auto;
 
-            position: absolute;
+            position: fixed;
             top: 0;
             bottom: 0;
             left: 0;
             right: 0;
+            image-rendering: auto;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
             font-family: arial;
             width: 100%;
-            height: 100%;
+            height: 100dvh;
             margin: 0;
             padding: 0;
             overflow: hidden;
