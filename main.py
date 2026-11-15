@@ -25,12 +25,13 @@ pygame.init()
 # ---------------------------------------------------------------------------
 WIDTH, HEIGHT = 720, 720
 FPS = 60
-TITLE = "MINDMISSION"
+TITLE = "MIND MISSION"
 SAVE_FILE = "mindmission_stats.json"
 
 FULLSCREEN = False
-screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
-pygame.display.set_caption(TITLE)
+ignore_bootstrap_click = sys.platform == "emscripten"
+display_surface = None
+screen = None
 clock = pygame.time.Clock()
 
 # Theme
@@ -57,28 +58,95 @@ DIFFICULTY_INDEX = 0
 
 # ---------------------------------------------------------------------------
 # DISPLAY HELPERS
+# The game renders to a stable square canvas, then scales that canvas into the
+# browser's real drawing area. This keeps both the artwork and mouse targets
+# aligned when Pygbag changes the canvas size to fit a viewer's window.
 # ---------------------------------------------------------------------------
-def set_display_size():
-    global WIDTH, HEIGHT, screen
-    if FULLSCREEN:
-        info = pygame.display.Info()
-        WIDTH, HEIGHT = info.current_w, info.current_h
-        screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN)
-    else:
-        WIDTH, HEIGHT = 720, 720
-        screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
+def _browser_canvas_size():
+    if sys.platform == "emscripten":
+        try:
+            import platform as browser_platform
+            canvas = browser_platform.window.canvas
+            width, height = int(canvas.width), int(canvas.height)
+            if width > 0 and height > 0:
+                return width, height
+        except (AttributeError, TypeError, ValueError):
+            pass
+    return WIDTH, HEIGHT
+
+
+def set_display_size(output_size=None):
+    global display_surface, screen
+    if output_size is None:
+        if sys.platform == "emscripten":
+            output_size = _browser_canvas_size()
+        elif FULLSCREEN:
+            info = pygame.display.Info()
+            output_size = (info.current_w, info.current_h)
+        else:
+            output_size = (WIDTH, HEIGHT)
+
+    output_width = max(1, int(output_size[0]))
+    output_height = max(1, int(output_size[1]))
+    flags = pygame.RESIZABLE
+    if FULLSCREEN and sys.platform != "emscripten":
+        flags = pygame.FULLSCREEN
+    display_surface = pygame.display.set_mode((output_width, output_height), flags)
+    screen = pygame.Surface((WIDTH, HEIGHT)).convert()
     pygame.display.set_caption(TITLE)
 
 
-def draw_text(surface, text, font, color, center=None, topleft=None):
+set_display_size()
+
+
+def present():
+    output_width, output_height = display_surface.get_size()
+    scale = min(output_width / WIDTH, output_height / HEIGHT)
+    render_size = (max(1, round(WIDTH * scale)), max(1, round(HEIGHT * scale)))
+    frame = screen if render_size == (WIDTH, HEIGHT) else pygame.transform.smoothscale(screen, render_size)
+    display_surface.fill(BG)
+    x = (output_width - render_size[0]) // 2
+    y = (output_height - render_size[1]) // 2
+    display_surface.blit(frame, (x, y))
+    pygame.display.flip()
+
+
+def to_logical_point(point):
+    output_width, output_height = display_surface.get_size()
+    scale = min(output_width / WIDTH, output_height / HEIGHT)
+    x = (output_width - WIDTH * scale) / 2
+    y = (output_height - HEIGHT * scale) / 2
+    return ((point[0] - x) / scale, (point[1] - y) / scale)
+
+
+def draw_text(surface, text, font, color, center=None, topleft=None, topright=None):
     image = font.render(str(text), True, color)
     rect = image.get_rect()
     if center is not None:
         rect.center = center
     elif topleft is not None:
         rect.topleft = topleft
+    elif topright is not None:
+        rect.topright = topright
     surface.blit(image, rect)
     return rect
+
+
+def draw_wordmark(center_x, top, font, gap=10):
+    first = font.render("MIND", True, WHITE)
+    second = font.render("MISSION", True, CYAN)
+    total_width = first.get_width() + gap + second.get_width()
+    left = center_x - total_width // 2
+    screen.blit(first, (left, top))
+    screen.blit(second, (left + first.get_width() + gap, top))
+    return pygame.Rect(left, top, total_width, max(first.get_height(), second.get_height()))
+
+
+def draw_left_wordmark(left, top, font, gap=8):
+    first = font.render("MIND", True, WHITE)
+    second = font.render("MISSION", True, CYAN)
+    screen.blit(first, (left, top))
+    screen.blit(second, (left + first.get_width() + gap, top))
 
 
 def draw_background():
@@ -96,9 +164,9 @@ def draw_panel(rect, fill=PANEL, border=BORDER, radius=18, width=1):
 
 
 def draw_header(section, subtitle="TRAIN YOUR MIND"):
-    draw_text(screen, "MINDMISSION", MEDIUM, CYAN, topleft=(34, 24))
-    draw_text(screen, section.upper(), SMALL, MUTED, topleft=(36, 63))
-    draw_text(screen, subtitle, SMALL, MUTED, topleft=(WIDTH - 220, 35))
+    draw_left_wordmark(32, 20, MEDIUM)
+    draw_text(screen, section.upper(), SMALL, MUTED, topleft=(32, 62))
+    draw_text(screen, subtitle, SMALL, MUTED, topright=(WIDTH - 32, 35))
     pygame.draw.line(screen, BORDER, (32, 91), (WIDTH - 32, 91), 1)
 
 
@@ -156,12 +224,14 @@ class Button:
         self.accent = accent
         self.font = font
         self.enabled = True
+        self.focused = False
 
     def draw(self):
-        hovered = self.rect.collidepoint(pygame.mouse.get_pos()) and self.enabled
-        fill = PANEL_HOVER if hovered else PANEL
-        border = self.accent if hovered else BORDER
-        draw_panel(self.rect, fill, border, 13, 2 if hovered else 1)
+        hovered = self.rect.collidepoint(to_logical_point(pygame.mouse.get_pos())) and self.enabled
+        active = (hovered or self.focused) and self.enabled
+        fill = PANEL_HOVER if active else PANEL
+        border = self.accent if active else BORDER
+        draw_panel(self.rect, fill, border, 13, 3 if active else 1)
         text_color = WHITE if self.enabled else MUTED
         draw_text(screen, self.text, self.font, text_color, center=self.rect.center)
 
@@ -170,7 +240,7 @@ class Button:
             self.enabled
             and event.type == pygame.MOUSEBUTTONDOWN
             and event.button == 1
-            and self.rect.collidepoint(event.pos)
+            and self.rect.collidepoint(to_logical_point(event.pos))
         )
 
 
@@ -218,6 +288,9 @@ def handle_global_event(event):
     if event.type == pygame.QUIT:
         # Browser canvas close events must not tear down SDL under the event loop.
         return
+    if event.type == pygame.VIDEORESIZE:
+        set_display_size((event.w, event.h))
+        return True
     if event.type == pygame.KEYDOWN:
         if event.key == pygame.K_F11:
             FULLSCREEN = not FULLSCREEN
@@ -235,9 +308,11 @@ async def wait_screen(title, message, color=GREEN, seconds=1.4):
                 return
         draw_background()
         draw_particles()
+        card = pygame.Rect(WIDTH // 2 - 260, HEIGHT // 2 - 100, 520, 200)
+        draw_panel(card, PANEL, BORDER, 24, 2)
         draw_text(screen, title, BIG, color, center=(WIDTH // 2, HEIGHT // 2 - 35))
         draw_text(screen, message, FONT, MUTED, center=(WIDTH // 2, HEIGHT // 2 + 30))
-        pygame.display.flip()
+        present()
         clock.tick(FPS)
         await asyncio.sleep(0)
 
@@ -299,12 +374,14 @@ async def maze_game():
 
         draw_background()
         draw_particles()
-        draw_header("MAZE RUNNER", "FIND THE EXIT")
+        draw_header("MAZE RUNNER", "CYAN: YOU  ·  GREEN: EXIT")
         area_w = min(WIDTH - 100, int((HEIGHT - 180) * cols / rows))
         area_h = min(HEIGHT - 160, int(area_w * rows / cols))
         cell = max(8, min(area_w // cols, area_h // rows))
         maze_w, maze_h = cell * cols, cell * rows
         ox, oy = (WIDTH - maze_w) // 2, 112 + (HEIGHT - 140 - maze_h) // 2
+        draw_panel(pygame.Rect(ox - 10, oy - 10, maze_w + 20, maze_h + 20),
+                   (10, 18, 34), BORDER, 14)
 
         for y in range(rows):
             for x in range(cols):
@@ -316,10 +393,12 @@ async def maze_game():
                                          cell - 4, cell - 4), border_radius=4)
 
         elapsed = (pygame.time.get_ticks() - started) // 1000
-        draw_text(screen, f"TIME  {elapsed}s     MOVES  {moves}", SMALL, MUTED,
-                  center=(WIDTH // 2, HEIGHT - 55))
+        status = pygame.Rect(WIDTH // 2 - 170, HEIGHT - 92, 340, 42)
+        draw_panel(status, PANEL, BORDER, 12)
+        draw_text(screen, f"TIME  {elapsed}s     MOVES  {moves}", SMALL, CYAN,
+                  center=status.center)
         draw_footer("ARROW KEYS / WASD  •  ESC TO QUIT MISSION")
-        pygame.display.flip()
+        present()
         clock.tick(FPS)
         await asyncio.sleep(0)
 
@@ -342,25 +421,35 @@ async def reaction_game():
     reaction_start = 0
     result = None
 
+    def activate(now):
+        nonlocal phase, change_at, reaction_start, result
+        if phase == "ready":
+            phase = "waiting"
+            change_at = now + random.randint(1300, 3500)
+        elif phase == "waiting":
+            phase = "false_start"
+        elif phase == "go":
+            result = now - reaction_start
+            stats["games_played"] += 1
+            if stats["reaction_best"] is None or result < stats["reaction_best"]:
+                stats["reaction_best"] = result
+            save_stats()
+            phase = "result"
+        else:
+            phase = "ready"
+            result = None
+
     while True:
         now = pygame.time.get_ticks()
         for event in pygame.event.get():
             handle_global_event(event)
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return
+                if event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
+                    activate(now)
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if phase == "ready":
-                    phase = "waiting"
-                    change_at = now + random.randint(1300, 3500)
-                elif phase == "waiting":
-                    phase = "false_start"
-                elif phase == "go":
-                    result = now - reaction_start
-                    stats["games_played"] += 1
-                    if stats["reaction_best"] is None or result < stats["reaction_best"]:
-                        stats["reaction_best"] = result
-                    save_stats()
-                    phase = "result"
+                activate(now)
 
         if phase == "waiting" and now >= change_at:
             phase = "go"
@@ -375,11 +464,11 @@ async def reaction_game():
 
         if phase == "ready":
             draw_text(screen, "REACTION TEST", BIG, WHITE, center=(WIDTH // 2, HEIGHT // 2 - 55))
-            draw_text(screen, "Click anywhere to begin", FONT, CYAN,
+            draw_text(screen, "CLICK OR PRESS SPACE TO BEGIN", FONT, CYAN,
                       center=(WIDTH // 2, HEIGHT // 2 + 35))
         elif phase == "waiting":
             draw_text(screen, "WAIT...", BIG, GOLD, center=(WIDTH // 2, HEIGHT // 2 - 35))
-            draw_text(screen, "Click only when the panel turns green", FONT, MUTED,
+            draw_text(screen, "CLICK / SPACE ONLY WHEN THE SIGNAL TURNS GREEN", SMALL, MUTED,
                       center=(WIDTH // 2, HEIGHT // 2 + 35))
         elif phase == "go":
             pygame.draw.circle(screen, GREEN, (WIDTH // 2, HEIGHT // 2), 72)
@@ -389,7 +478,7 @@ async def reaction_game():
             draw_text(screen, "TOO EARLY!", BIG, RED, center=(WIDTH // 2, HEIGHT // 2 - 25))
             draw_text(screen, "You clicked before the signal.", FONT, MUTED,
                       center=(WIDTH // 2, HEIGHT // 2 + 40))
-            draw_text(screen, "Press SPACE to try again", SMALL, CYAN,
+            draw_text(screen, "CLICK OR PRESS SPACE TO TRY AGAIN", SMALL, CYAN,
                       center=(WIDTH // 2, HEIGHT // 2 + 90))
         elif phase == "result":
             label = "ELITE REFLEX!" if result <= target else "GOOD ATTEMPT!"
@@ -398,17 +487,11 @@ async def reaction_game():
             draw_text(screen, label, MEDIUM, WHITE, center=(WIDTH // 2, HEIGHT // 2 + 30))
             draw_text(screen, f"Target for {diff.lower()}: {target} ms", SMALL, MUTED,
                       center=(WIDTH // 2, HEIGHT // 2 + 85))
-            draw_text(screen, "SPACE: retry     ESC: menu", SMALL, CYAN,
+            draw_text(screen, "CLICK / SPACE: RETRY     ESC: MENU", SMALL, CYAN,
                       center=(WIDTH // 2, HEIGHT // 2 + 125))
 
-        if phase in ("false_start", "result"):
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_SPACE]:
-                phase = "ready"
-                result = None
-
         draw_footer()
-        pygame.display.flip()
+        present()
         clock.tick(FPS)
         await asyncio.sleep(0)
 
@@ -427,16 +510,33 @@ async def recall_game():
     selected = []
     feedback = ""
     feedback_color = GREEN
+    choice_focus = 0
 
     buttons = []
-    cols = 4
-    bw, bh, gap = 190, 64, 16
+    cols = 3
+    bw, bh, gap = 184, 62, 16
     total_w = cols * bw + (cols - 1) * gap
     start_x = (WIDTH - total_w) // 2
     for index, item in enumerate(options):
         x = start_x + (index % cols) * (bw + gap)
-        y = HEIGHT // 2 - 20 + (index // cols) * (bh + gap)
-        buttons.append((item, Button((x, y, bw, bh), item, BLUE, SMALL)))
+        y = 310 + (index // cols) * (bh + gap)
+        buttons.append((item, Button((x, y, bw, bh), f"{index + 1}  ·  {item}", BLUE, SMALL)))
+
+    def choose_item(item):
+        nonlocal phase, feedback, feedback_color
+        if phase != "answer" or item in selected:
+            return
+        selected.append(item)
+        if len(selected) == length:
+            correct = selected == sequence
+            stats["games_played"] += 1
+            if correct:
+                stats["recall_wins"] += 1
+                stats["recall_best_streak"] = max(stats["recall_best_streak"], length)
+            save_stats()
+            phase = "result"
+            feedback = "MEMORY MASTER!" if correct else "NOT QUITE!"
+            feedback_color = GREEN if correct else RED
 
     while True:
         now = pygame.time.get_ticks()
@@ -445,22 +545,35 @@ async def recall_game():
 
         for event in pygame.event.get():
             handle_global_event(event)
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return
-            if phase == "answer":
-                for item, button in buttons:
-                    if button.clicked(event) and item not in selected:
-                        selected.append(item)
-                        if len(selected) == length:
-                            correct = selected == sequence
-                            stats["games_played"] += 1
-                            if correct:
-                                stats["recall_wins"] += 1
-                                stats["recall_best_streak"] = max(stats["recall_best_streak"], length)
-                            save_stats()
-                            phase = "result"
-                            feedback = "MEMORY MASTER!" if correct else "NOT QUITE!"
-                            feedback_color = GREEN if correct else RED
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return
+                if phase == "result" and event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                    return
+                if phase == "answer":
+                    number_keys = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4,
+                                   pygame.K_5, pygame.K_6, pygame.K_7)
+                    if event.key in number_keys:
+                        index = number_keys.index(event.key)
+                        if index < len(options):
+                            choice_focus = index
+                            choose_item(options[index])
+                    elif event.key in (pygame.K_LEFT, pygame.K_a):
+                        choice_focus = max(0, choice_focus - 1)
+                    elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                        choice_focus = min(len(options) - 1, choice_focus + 1)
+                    elif event.key in (pygame.K_UP, pygame.K_w):
+                        choice_focus = max(0, choice_focus - cols)
+                    elif event.key in (pygame.K_DOWN, pygame.K_s):
+                        choice_focus = min(len(options) - 1, choice_focus + cols)
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                        choose_item(options[choice_focus])
+
+            if phase == "answer" and event.type == pygame.MOUSEBUTTONDOWN:
+                for index, (item, button) in enumerate(buttons):
+                    if button.clicked(event):
+                        choice_focus = index
+                        choose_item(item)
 
         draw_background()
         draw_particles()
@@ -474,30 +587,31 @@ async def recall_game():
                 draw_panel(box, PANEL, CYAN, 10)
                 draw_text(screen, f"{i + 1}.  {item}", FONT, CYAN, center=box.center)
             remaining = max(0, (show_until - now) // 1000 + 1)
-            draw_text(screen, f"Memorise quickly • {remaining}", SMALL, MUTED,
+            draw_text(screen, f"Memorise quickly  ·  {remaining}", SMALL, MUTED,
                       center=(WIDTH // 2, HEIGHT - 65))
         elif phase == "answer":
-            draw_text(screen, "SELECT THE ITEMS IN THE ORIGINAL ORDER", MEDIUM, WHITE,
-                      center=(WIDTH // 2, HEIGHT // 2 - 150))
-            draw_text(screen, f"Progress: {len(selected)} / {length}", FONT, CYAN,
-                      center=(WIDTH // 2, HEIGHT // 2 - 105))
-            for item, button in buttons:
+            draw_text(screen, "PICK THE ITEMS IN ORDER", MEDIUM, WHITE,
+                      center=(WIDTH // 2, 192))
+            draw_text(screen, f"PROGRESS  {len(selected)} / {length}", SMALL, CYAN,
+                      center=(WIDTH // 2, 226))
+            for index, (item, button) in enumerate(buttons):
                 button.enabled = item not in selected
+                button.focused = index == choice_focus and button.enabled
                 button.draw()
-            draw_text(screen, "Chosen: " + ("  →  ".join(selected) if selected else "None"),
-                      SMALL, MUTED, center=(WIDTH // 2, HEIGHT - 65))
+            draw_text(screen, "CLICK A TILE OR PRESS 1–7  ·  ARROWS MOVE  ·  ENTER SELECT",
+                      SMALL, MUTED, center=(WIDTH // 2, 574))
+            draw_text(screen, "ORDER  " + ("  →  ".join(selected) if selected else "—"),
+                      SMALL, CYAN, center=(WIDTH // 2, 604))
         else:
             draw_text(screen, feedback, BIG, feedback_color,
                       center=(WIDTH // 2, HEIGHT // 2 - 65))
             draw_text(screen, "Correct order: " + "  →  ".join(sequence), FONT, WHITE,
                       center=(WIDTH // 2, HEIGHT // 2 + 10))
-            draw_text(screen, "Press SPACE to play again  •  ESC for menu", SMALL, CYAN,
+            draw_text(screen, "SPACE / ENTER: PLAY AGAIN  •  ESC: MENU", SMALL, CYAN,
                       center=(WIDTH // 2, HEIGHT // 2 + 75))
-            if pygame.key.get_pressed()[pygame.K_SPACE]:
-                return
 
         draw_footer()
-        pygame.display.flip()
+        present()
         clock.tick(FPS)
         await asyncio.sleep(0)
 
@@ -506,39 +620,68 @@ async def recall_game():
 # HOME SCREEN
 # ---------------------------------------------------------------------------
 async def home_screen():
-    global DIFFICULTY_INDEX
+    global DIFFICULTY_INDEX, ignore_bootstrap_click
     center = WIDTH // 2
     buttons = [
-        make_button(center, 270, 340, 62, "MAZE RUNNER", CYAN, MEDIUM),
-        make_button(center, 350, 340, 62, "REFLEX PROTOCOL", BLUE, MEDIUM),
-        make_button(center, 430, 340, 62, "MEMORY MATRIX", GREEN, MEDIUM),
-        make_button(center, 510, 160, 48, "QUIT", RED, FONT),
+        make_button(center, 300, 360, 62, "MAZE RUNNER", CYAN, MEDIUM),
+        make_button(center, 378, 360, 62, "REFLEX PROTOCOL", BLUE, MEDIUM),
+        make_button(center, 456, 360, 62, "MEMORY MATRIX", GREEN, MEDIUM),
+        make_button(center, 532, 176, 48, "QUIT", RED, FONT),
     ]
-    diff_button = Button((center - 115, 205, 230, 42),
+    diff_button = Button((center - 120, 215, 240, 42),
                          f"DIFFICULTY: {DIFFICULTIES[DIFFICULTY_INDEX]}", GOLD, SMALL)
+    focus_index = 0
 
     while True:
         center = WIDTH // 2
-        # Reposition the menu if the display mode or window size changes.
-        buttons[0].rect.center = (center, 301)
-        buttons[1].rect.center = (center, 381)
-        buttons[2].rect.center = (center, 461)
-        buttons[3].rect.center = (center, 534)
-        diff_button.rect.center = (center, 226)
+        buttons[0].rect.center = (center, 300)
+        buttons[1].rect.center = (center, 378)
+        buttons[2].rect.center = (center, 456)
+        buttons[3].rect.center = (center, 532)
+        diff_button.rect.center = (center, 236)
         for event in pygame.event.get():
             handle_global_event(event)
+            if event.type == pygame.MOUSEBUTTONDOWN and ignore_bootstrap_click:
+                ignore_bootstrap_click = False
+                continue
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_d, pygame.K_TAB):
                     DIFFICULTY_INDEX = (DIFFICULTY_INDEX + 1) % len(DIFFICULTIES)
                 elif event.key == pygame.K_q:
                     return
+                elif event.key in (pygame.K_UP, pygame.K_w):
+                    focus_index = (focus_index - 1) % len(buttons)
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    focus_index = (focus_index + 1) % len(buttons)
+                elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                    index = event.key - pygame.K_1
+                    focus_index = index
+                    if index == 0:
+                        await maze_game()
+                    elif index == 1:
+                        await reaction_game()
+                    else:
+                        await recall_game()
+                elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE):
+                    if focus_index == 0:
+                        await maze_game()
+                    elif focus_index == 1:
+                        await reaction_game()
+                    elif focus_index == 2:
+                        await recall_game()
+                    else:
+                        save_stats()
+                        return
             if diff_button.clicked(event):
                 DIFFICULTY_INDEX = (DIFFICULTY_INDEX + 1) % len(DIFFICULTIES)
             if buttons[0].clicked(event):
+                focus_index = 0
                 await maze_game()
             elif buttons[1].clicked(event):
+                focus_index = 1
                 await reaction_game()
             elif buttons[2].clicked(event):
+                focus_index = 2
                 await recall_game()
             elif buttons[3].clicked(event):
                 save_stats()
@@ -549,34 +692,32 @@ async def home_screen():
         draw_background()
         draw_particles()
 
-        # Brand lockup
-        draw_text(screen, "MIND", HUGE, WHITE, center=(center - 105, 118))
-        draw_text(screen, "MISSION", HUGE, CYAN, center=(center + 145, 118))
+        draw_wordmark(center, 62, HUGE, gap=24)
         draw_text(screen, "A BRAIN-TRAINING ARCADE", SMALL, MUTED,
-                  center=(center, 165))
+                  center=(center, 169))
         draw_text(screen, "Choose a mission. Challenge your mind. Beat your best.",
-                  FONT, WHITE, center=(center, 185))
+                  FONT, WHITE, center=(center, 193))
 
         diff_button.draw()
-        for button in buttons:
+        for index, button in enumerate(buttons):
+            button.focused = index == focus_index
             button.draw()
 
-        # Compact progress panel
-        panel = pygame.Rect(28, HEIGHT - 112, WIDTH - 56, 66)
+        panel = pygame.Rect(32, 626, WIDTH - 64, 60)
         draw_panel(panel, (10, 18, 34), BORDER, 14)
         best = stats["reaction_best"]
         best_text = f"{best} ms" if best is not None else "—"
         summary = (
-            f"MISSIONS PLAYED  {stats['games_played']}     "
-            f"MAZE CLEARS  {stats['maze_wins']}     "
-            f"MEMORY WINS  {stats['recall_wins']}     "
-            f"BEST REACTION  {best_text}"
+            f"MISSIONS {stats['games_played']}   •   MAZE {stats['maze_wins']}   •   "
+            f"MEMORY {stats['recall_wins']}   •   REACTION {best_text}"
         )
         draw_text(screen, summary, SMALL, MUTED, center=panel.center)
-        draw_text(screen, "D / TAB: difficulty    F11: fullscreen    Q: quit",
-                  SMALL, MUTED, center=(center, HEIGHT - 132))
+        draw_text(screen, "↑ / ↓ SELECT   •   ENTER OPEN   •   1–3 QUICK PLAY",
+                  SMALL, CYAN, center=(center, 582))
+        draw_text(screen, "D / TAB: DIFFICULTY   •   F11: FULL SCREEN   •   Q: QUIT",
+                  SMALL, MUTED, center=(center, 603))
 
-        pygame.display.flip()
+        present()
         clock.tick(FPS)
         await asyncio.sleep(0)
 
