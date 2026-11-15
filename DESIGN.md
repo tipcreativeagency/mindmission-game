@@ -15,5 +15,5 @@ The main wordmark is a centered two-part lockup: white “MIND”, a visible 20�
 - Show a visible focus outline for keyboard-selected buttons. Support arrow keys and Enter on the home screen, and mouse or keyboard input inside each mission.
 - Keep mission navigation and sound controls available on touch screens. Maze Runner has a large on-screen four-way pad; other missions use tap targets already built into their gameplay.
 - Use brief, quiet synthesized sound effects for actions and feedback. Keep an on-screen sound toggle visible while playing.
-- Preserve readable text and controls when the square canvas is scaled down. The game canvas itself remains the interactive surface; avoid decorative browser chrome around it.
+- Preserve readable text and controls when the square canvas is scaled down. The game canvas itself remains the interactive surface; avoid decorative browser chrome around it. Give each deployed game bundle a new archive name so mobile browsers fetch updates instead of replaying cached builds.
 - Keep the existing game rules, scores, and mission content unchanged while polishing layout and feedback.

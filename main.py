@@ -906,7 +906,7 @@ async def home_screen():
             f"MEMORY {stats['recall_wins']}   •   REACTION {best_text}"
         )
         draw_text(screen, summary, SMALL, MUTED, center=panel.center)
-        draw_text(screen, "↑ / ↓ SELECT   •   ENTER OPEN   •   1–3 QUICK PLAY",
+        draw_text(screen, "TAP A MISSION TO PLAY   •   ↑ / ↓ + ENTER ON DESKTOP",
                   SMALL, CYAN, center=(center, 582))
         draw_text(screen, "D / TAB: DIFFICULTY   •   F11: FULL SCREEN   •   Q: QUIT",
                   SMALL, MUTED, center=(center, 603))

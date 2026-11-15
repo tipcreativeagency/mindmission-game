@@ -16,4 +16,4 @@ Serve this folder over HTTP (for example, `python3 -m http.server 8000`) and ope
 
 `main.py` is the browser-ready Pygame source. It uses Pygbag's asynchronous entry point so the game loop can yield to the browser. The web runtime and game bundle are included in the root because GitHub Pages serves static files.
 
-The `.apk` filename is part of Pygbag's web bundle convention used by `index.html`; it is not an installable Android APK. A native Android APK requires a separate Android packaging workflow.
+The versioned `.apk` filename is part of Pygbag's web bundle convention used by `index.html`; it is not an installable Android APK. The archive name is bumped when publishing game updates so mobile browsers do not reuse an older cached bundle. A native Android APK requires a separate Android packaging workflow.
